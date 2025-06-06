@@ -198,26 +198,26 @@
     <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
     
     <script>
-        // Firebase configuration - Using a demo/test configuration
-        // For production, replace with your own Firebase config
+        // Firebase configuration - Using your actual config
         let database;
         let firebaseInitialized = false;
         
-        // Try to initialize Firebase with a working config
+        // Try to initialize Firebase with your config
         try {
-              const firebaseConfig = {
-            apiKey: "AIzaSyB2GlU18gz4I3IbaxyU-0hDaGzKYIQ4kUo",
-            authDomain: "chess-e64a8.firebaseapp.com",
-            databaseURL: "https://chess-e64a8-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "chess-e64a8",
-            storageBucket: "chess-e64a8.firebasestorage.app",
-            messagingSenderId: "1015646457622",
-            appId: "1:1015646457622:web:43d03523a7680368094a37"
+            const firebaseConfig = {
+                apiKey: "AIzaSyB2GlU18gz4I3IbaxyU-0hDaGzKYIQ4kUo",
+                authDomain: "chess-e64a8.firebaseapp.com",
+                databaseURL: "https://chess-e64a8-default-rtdb.asia-southeast1.firebasedatabase.app",
+                projectId: "chess-e64a8",
+                storageBucket: "chess-e64a8.firebasestorage.app",
+                messagingSenderId: "1015646457622",
+                appId: "1:1015646457622:web:43d03523a7680368094a37"
             };
             
             firebase.initializeApp(firebaseConfig);
             database = firebase.database();
             firebaseInitialized = true;
+            console.log('Firebase initialized successfully');
         } catch (error) {
             console.log('Firebase initialization failed, using local mode:', error);
             firebaseInitialized = false;
@@ -258,18 +258,23 @@
             gameId = Math.random().toString(36).substr(2, 6).toUpperCase();
             playerColor = 'white';
             
+            // Create a deep copy of the initial board to avoid reference issues
             const gameData = {
-                board: JSON.parse(JSON.stringify(initialBoard)),
+                board: initialBoard.map(row => [...row]), // Deep copy
                 currentPlayer: 'white',
                 players: {
                     white: true,
                     black: false
                 },
-                gameStatus: 'waiting'
+                gameStatus: 'waiting',
+                createdAt: Date.now()
             };
+
+            console.log('Creating game with data:', gameData);
 
             if (firebaseInitialized) {
                 database.ref('games/' + gameId).set(gameData).then(() => {
+                    console.log('Game created successfully in Firebase');
                     showGameCreated();
                     listenForGameUpdates();
                 }).catch(error => {
@@ -315,20 +320,32 @@
             playerColor = 'black';
 
             if (firebaseInitialized) {
+                console.log('Attempting to join game:', gameId);
                 database.ref('games/' + gameId).once('value').then(snapshot => {
+                    console.log('Join game - snapshot exists:', snapshot.exists());
                     if (snapshot.exists()) {
                         const game = snapshot.val();
-                        if (!game.players.black) {
+                        console.log('Game found:', game);
+                        
+                        if (game.players && !game.players.black) {
                             database.ref('games/' + gameId + '/players/black').set(true).then(() => {
-                                database.ref('games/' + gameId + '/gameStatus').set('active');
+                                return database.ref('games/' + gameId + '/gameStatus').set('active');
+                            }).then(() => {
+                                console.log('Successfully joined game');
                                 listenForGameUpdates();
+                            }).catch(error => {
+                                console.error('Error joining game:', error);
+                                alert('Error joining game: ' + error.message);
                             });
                         } else {
-                            alert('Game is full!');
+                            alert('Game is full or invalid!');
                         }
                     } else {
                         alert('Game not found!');
                     }
+                }).catch(error => {
+                    console.error('Error finding game:', error);
+                    alert('Error finding game: ' + error.message);
                 });
             } else {
                 // Local mode - check if local game exists
@@ -346,17 +363,44 @@
         function listenForGameUpdates() {
             if (firebaseInitialized) {
                 database.ref('games/' + gameId).on('value', snapshot => {
+                    console.log('Firebase data received:', snapshot.exists());
                     if (snapshot.exists()) {
-                        gameState = snapshot.val();
-                        updateGameDisplay();
+                        const data = snapshot.val();
+                        console.log('Game data:', data);
+                        
+                        // Validate the data structure
+                        if (data && typeof data === 'object') {
+                            gameState = data;
+                            updateGameDisplay();
+                        } else {
+                            console.error('Invalid data structure received:', data);
+                        }
+                    } else {
+                        console.log('No data exists for game:', gameId);
+                        document.getElementById('status').textContent = 'Game not found!';
                     }
+                }, error => {
+                    console.error('Firebase error:', error);
+                    document.getElementById('status').textContent = 'Connection error: ' + error.message;
                 });
             }
         }
 
         function updateGameDisplay() {
+            if (!gameState) {
+                console.log('Game state is null, skipping update');
+                return;
+            }
+
             if (gameState.gameStatus === 'waiting') {
                 document.getElementById('status').textContent = 'Waiting for opponent...';
+                return;
+            }
+
+            // Validate that gameState has required properties
+            if (!gameState.board || !Array.isArray(gameState.board) || gameState.board.length !== 8) {
+                console.error('Invalid game state board:', gameState);
+                document.getElementById('status').textContent = 'Error: Invalid game data received';
                 return;
             }
 
@@ -364,12 +408,17 @@
             document.getElementById('chessBoard').style.display = 'block';
             document.getElementById('gameInfo').style.display = 'block';
 
-            currentPlayer = gameState.currentPlayer;
+            currentPlayer = gameState.currentPlayer || 'white';
             updateBoard();
             updateGameStatus();
         }
 
         function updateBoard() {
+            if (!gameState || !gameState.board) {
+                console.error('Cannot update board: gameState or board is missing');
+                return;
+            }
+
             const boardElement = document.getElementById('board');
             boardElement.innerHTML = '';
 
@@ -381,11 +430,14 @@
                     square.dataset.col = col;
                     square.onclick = () => handleSquareClick(row, col);
 
-                    const piece = gameState.board[row][col];
+                    // Safely access board data
+                    const piece = gameState.board[row] && gameState.board[row][col] ? gameState.board[row][col] : null;
                     if (piece) {
                         // Determine piece color based on row position
                         const color = row <= 1 ? 'black' : 'white';
-                        square.textContent = pieces[color][piece];
+                        if (pieces[color] && pieces[color][piece]) {
+                            square.textContent = pieces[color][piece];
+                        }
                     }
 
                     boardElement.appendChild(square);
