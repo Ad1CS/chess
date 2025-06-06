@@ -43,6 +43,7 @@
             border: 4px solid #8B4513;
             border-radius: 10px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            width: fit-content;
         }
 
         .board {
@@ -50,6 +51,7 @@
             grid-template-columns: repeat(8, 60px);
             grid-template-rows: repeat(8, 60px);
             gap: 0;
+            background: #f0d9b5;
         }
 
         .square {
@@ -196,8 +198,14 @@
     <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
     
     <script>
-        // Firebase configuration - You need to replace this with your own Firebase config
-            const firebaseConfig = {
+        // Firebase configuration - Using a demo/test configuration
+        // For production, replace with your own Firebase config
+        let database;
+        let firebaseInitialized = false;
+        
+        // Try to initialize Firebase with a working config
+        try {
+              const firebaseConfig = {
             apiKey: "AIzaSyB2GlU18gz4I3IbaxyU-0hDaGzKYIQ4kUo",
             authDomain: "chess-e64a8.firebaseapp.com",
             databaseURL: "https://chess-e64a8-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -206,9 +214,16 @@
             messagingSenderId: "1015646457622",
             appId: "1:1015646457622:web:43d03523a7680368094a37"
             };
-        // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
+            
+            firebase.initializeApp(firebaseConfig);
+            database = firebase.database();
+            firebaseInitialized = true;
+        } catch (error) {
+            console.log('Firebase initialization failed, using local mode:', error);
+            firebaseInitialized = false;
+        }
+        // Local storage fallback for when Firebase isn't available
+        let localGameState = null;
 
         // Game state
         let gameId = null;
@@ -244,7 +259,7 @@
             playerColor = 'white';
             
             const gameData = {
-                board: initialBoard,
+                board: JSON.parse(JSON.stringify(initialBoard)),
                 currentPlayer: 'white',
                 players: {
                     white: true,
@@ -253,16 +268,40 @@
                 gameStatus: 'waiting'
             };
 
-            database.ref('games/' + gameId).set(gameData).then(() => {
-                document.getElementById('status').innerHTML = 'Game created! Share this link with your friend: <div class="loading"></div>';
-                const gameLink = window.location.href + '?game=' + gameId;
-                document.getElementById('gameLink').innerHTML = `<strong>Game Link:</strong><br>${gameLink}<br><button onclick="copyToClipboard('${gameLink}')">Copy Link</button>`;
-                document.getElementById('gameLink').style.display = 'block';
-                
-                listenForGameUpdates();
-            }).catch(error => {
-                document.getElementById('status').textContent = 'Error creating game: ' + error.message;
-            });
+            if (firebaseInitialized) {
+                database.ref('games/' + gameId).set(gameData).then(() => {
+                    showGameCreated();
+                    listenForGameUpdates();
+                }).catch(error => {
+                    console.error('Firebase error:', error);
+                    // Fall back to local mode
+                    createLocalGame(gameData);
+                });
+            } else {
+                createLocalGame(gameData);
+            }
+        }
+
+        function createLocalGame(gameData) {
+            localGameState = gameData;
+            document.getElementById('status').innerHTML = 'Game created in local mode!<br><small>Firebase not available - opponent must join on same device</small>';
+            const gameLink = window.location.href + '?game=' + gameId;
+            document.getElementById('gameLink').innerHTML = `<strong>Game ID:</strong> ${gameId}<br><button onclick="startLocalGame()">Start Local Game</button>`;
+            document.getElementById('gameLink').style.display = 'block';
+        }
+
+        function showGameCreated() {
+            document.getElementById('status').innerHTML = 'Game created! Share this link with your friend:';
+            const gameLink = window.location.href + '?game=' + gameId;
+            document.getElementById('gameLink').innerHTML = `<strong>Game Link:</strong><br>${gameLink}<br><button onclick="copyToClipboard('${gameLink}')">Copy Link</button>`;
+            document.getElementById('gameLink').style.display = 'block';
+        }
+
+        function startLocalGame() {
+            localGameState.gameStatus = 'active';
+            localGameState.players.black = true;
+            gameState = localGameState;
+            updateGameDisplay();
         }
 
         function joinGame() {
@@ -275,30 +314,44 @@
             gameId = inputGameId;
             playerColor = 'black';
 
-            database.ref('games/' + gameId).once('value').then(snapshot => {
-                if (snapshot.exists()) {
-                    const game = snapshot.val();
-                    if (!game.players.black) {
-                        database.ref('games/' + gameId + '/players/black').set(true).then(() => {
-                            database.ref('games/' + gameId + '/gameStatus').set('active');
-                            listenForGameUpdates();
-                        });
+            if (firebaseInitialized) {
+                database.ref('games/' + gameId).once('value').then(snapshot => {
+                    if (snapshot.exists()) {
+                        const game = snapshot.val();
+                        if (!game.players.black) {
+                            database.ref('games/' + gameId + '/players/black').set(true).then(() => {
+                                database.ref('games/' + gameId + '/gameStatus').set('active');
+                                listenForGameUpdates();
+                            });
+                        } else {
+                            alert('Game is full!');
+                        }
                     } else {
-                        alert('Game is full!');
+                        alert('Game not found!');
                     }
+                });
+            } else {
+                // Local mode - check if local game exists
+                if (localGameState && localGameState.gameStatus === 'waiting') {
+                    localGameState.players.black = true;
+                    localGameState.gameStatus = 'active';
+                    gameState = localGameState;
+                    updateGameDisplay();
                 } else {
-                    alert('Game not found!');
+                    alert('No local game found! Firebase not available.');
                 }
-            });
+            }
         }
 
         function listenForGameUpdates() {
-            database.ref('games/' + gameId).on('value', snapshot => {
-                if (snapshot.exists()) {
-                    gameState = snapshot.val();
-                    updateGameDisplay();
-                }
-            });
+            if (firebaseInitialized) {
+                database.ref('games/' + gameId).on('value', snapshot => {
+                    if (snapshot.exists()) {
+                        gameState = snapshot.val();
+                        updateGameDisplay();
+                    }
+                });
+            }
         }
 
         function updateGameDisplay() {
@@ -330,7 +383,8 @@
 
                     const piece = gameState.board[row][col];
                     if (piece) {
-                        const color = row < 2 ? 'black' : 'white';
+                        // Determine piece color based on row position
+                        const color = row <= 1 ? 'black' : 'white';
                         square.textContent = pieces[color][piece];
                     }
 
@@ -445,10 +499,21 @@
             
             const nextPlayer = currentPlayer === 'white' ? 'black' : 'white';
             
-            database.ref('games/' + gameId).update({
-                board: newBoard,
-                currentPlayer: nextPlayer
-            });
+            if (firebaseInitialized) {
+                database.ref('games/' + gameId).update({
+                    board: newBoard,
+                    currentPlayer: nextPlayer
+                });
+            } else {
+                // Local mode - update local state
+                gameState.board = newBoard;
+                gameState.currentPlayer = nextPlayer;
+                localGameState = gameState;
+                
+                // Toggle player color for local play
+                playerColor = playerColor === 'white' ? 'black' : 'white';
+                updateGameDisplay();
+            }
         }
 
         function copyToClipboard(text) {
