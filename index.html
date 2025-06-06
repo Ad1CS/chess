@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Chess Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+
+        .container {
+            text-align: center;
+            max-width: 600px;
+            width: 100%;
+            padding: 20px;
+        }
+
+        .game-setup {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .chess-board {
+            display: none;
+            margin: 0 auto;
+            border: 4px solid #8B4513;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(8, 60px);
+            grid-template-rows: repeat(8, 60px);
+            gap: 0;
+        }
+
+        .square {
+            width: 60px;
+            height: 60px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 36px;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+        }
+
+        .square.light {
+            background-color: #f0d9b5;
+        }
+
+        .square.dark {
+            background-color: #b58863;
+        }
+
+        .square.selected {
+            background-color: #ffff00 !important;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .square.possible-move {
+            background-color: #90EE90 !important;
+        }
+
+        .square:hover {
+            transform: scale(1.05);
+        }
+
+        .game-info {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        button {
+            background: linear-gradient(45deg, #FF6B6B, #4ECDC4);
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px;
+            text-transform: uppercase;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        input {
+            padding: 12px;
+            border: none;
+            border-radius: 25px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            font-size: 16px;
+            margin: 10px;
+            min-width: 200px;
+            text-align: center;
+        }
+
+        .status {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 15px 0;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .game-link {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            word-break: break-all;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        h1 {
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            background: linear-gradient(45deg, #FFD700, #FFA500);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>♔ Multiplayer Chess ♕</h1>
+        
+        <div id="gameSetup" class="game-setup">
+            <div class="status" id="status">Welcome to Multiplayer Chess!</div>
+            <button onclick="createGame()">Create New Game</button>
+            <br>
+            <input type="text" id="gameIdInput" placeholder="Enter Game ID to Join">
+            <button onclick="joinGame()">Join Game</button>
+            <div id="gameLink" class="game-link" style="display: none;"></div>
+        </div>
+
+        <div id="chessBoard" class="chess-board">
+            <div class="board" id="board"></div>
+        </div>
+
+        <div id="gameInfo" class="game-info" style="display: none;">
+            <div class="status" id="gameStatus">Game Starting...</div>
+            <div id="playerInfo"></div>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
+    
+    <script>
+        // Firebase configuration - You need to replace this with your own Firebase config
+            const firebaseConfig = {
+            apiKey: "AIzaSyB2GlU18gz4I3IbaxyU-0hDaGzKYIQ4kUo",
+            authDomain: "chess-e64a8.firebaseapp.com",
+            databaseURL: "https://chess-e64a8-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "chess-e64a8",
+            storageBucket: "chess-e64a8.firebasestorage.app",
+            messagingSenderId: "1015646457622",
+            appId: "1:1015646457622:web:43d03523a7680368094a37"
+            };
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        // Game state
+        let gameId = null;
+        let playerColor = null;
+        let currentPlayer = 'white';
+        let selectedSquare = null;
+        let gameState = null;
+
+        // Chess pieces Unicode symbols
+        const pieces = {
+            'white': {
+                'king': '♔', 'queen': '♕', 'rook': '♖', 'bishop': '♗', 'knight': '♘', 'pawn': '♙'
+            },
+            'black': {
+                'king': '♚', 'queen': '♛', 'rook': '♜', 'bishop': '♝', 'knight': '♞', 'pawn': '♟'
+            }
+        };
+
+        // Initial board setup
+        const initialBoard = [
+            ['rook', 'knight', 'bishop', 'queen', 'king', 'bishop', 'knight', 'rook'],
+            ['pawn', 'pawn', 'pawn', 'pawn', 'pawn', 'pawn', 'pawn', 'pawn'],
+            [null, null, null, null, null, null, null, null],
+            [null, null, null, null, null, null, null, null],
+            [null, null, null, null, null, null, null, null],
+            [null, null, null, null, null, null, null, null],
+            ['pawn', 'pawn', 'pawn', 'pawn', 'pawn', 'pawn', 'pawn', 'pawn'],
+            ['rook', 'knight', 'bishop', 'queen', 'king', 'bishop', 'knight', 'rook']
+        ];
+
+        function createGame() {
+            gameId = Math.random().toString(36).substr(2, 6).toUpperCase();
+            playerColor = 'white';
+            
+            const gameData = {
+                board: initialBoard,
+                currentPlayer: 'white',
+                players: {
+                    white: true,
+                    black: false
+                },
+                gameStatus: 'waiting'
+            };
+
+            database.ref('games/' + gameId).set(gameData).then(() => {
+                document.getElementById('status').innerHTML = 'Game created! Share this link with your friend: <div class="loading"></div>';
+                const gameLink = window.location.href + '?game=' + gameId;
+                document.getElementById('gameLink').innerHTML = `<strong>Game Link:</strong><br>${gameLink}<br><button onclick="copyToClipboard('${gameLink}')">Copy Link</button>`;
+                document.getElementById('gameLink').style.display = 'block';
+                
+                listenForGameUpdates();
+            }).catch(error => {
+                document.getElementById('status').textContent = 'Error creating game: ' + error.message;
+            });
+        }
+
+        function joinGame() {
+            const inputGameId = document.getElementById('gameIdInput').value.toUpperCase();
+            if (!inputGameId) {
+                alert('Please enter a game ID');
+                return;
+            }
+
+            gameId = inputGameId;
+            playerColor = 'black';
+
+            database.ref('games/' + gameId).once('value').then(snapshot => {
+                if (snapshot.exists()) {
+                    const game = snapshot.val();
+                    if (!game.players.black) {
+                        database.ref('games/' + gameId + '/players/black').set(true).then(() => {
+                            database.ref('games/' + gameId + '/gameStatus').set('active');
+                            listenForGameUpdates();
+                        });
+                    } else {
+                        alert('Game is full!');
+                    }
+                } else {
+                    alert('Game not found!');
+                }
+            });
+        }
+
+        function listenForGameUpdates() {
+            database.ref('games/' + gameId).on('value', snapshot => {
+                if (snapshot.exists()) {
+                    gameState = snapshot.val();
+                    updateGameDisplay();
+                }
+            });
+        }
+
+        function updateGameDisplay() {
+            if (gameState.gameStatus === 'waiting') {
+                document.getElementById('status').textContent = 'Waiting for opponent...';
+                return;
+            }
+
+            document.getElementById('gameSetup').style.display = 'none';
+            document.getElementById('chessBoard').style.display = 'block';
+            document.getElementById('gameInfo').style.display = 'block';
+
+            currentPlayer = gameState.currentPlayer;
+            updateBoard();
+            updateGameStatus();
+        }
+
+        function updateBoard() {
+            const boardElement = document.getElementById('board');
+            boardElement.innerHTML = '';
+
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    const square = document.createElement('div');
+                    square.className = `square ${(row + col) % 2 === 0 ? 'light' : 'dark'}`;
+                    square.dataset.row = row;
+                    square.dataset.col = col;
+                    square.onclick = () => handleSquareClick(row, col);
+
+                    const piece = gameState.board[row][col];
+                    if (piece) {
+                        const color = row < 2 ? 'black' : 'white';
+                        square.textContent = pieces[color][piece];
+                    }
+
+                    boardElement.appendChild(square);
+                }
+            }
+        }
+
+        function updateGameStatus() {
+            const isMyTurn = currentPlayer === playerColor;
+            const statusText = isMyTurn ? "Your turn!" : "Opponent's turn";
+            document.getElementById('gameStatus').textContent = statusText;
+            document.getElementById('playerInfo').innerHTML = `You are playing as: <strong>${playerColor}</strong>`;
+        }
+
+        function handleSquareClick(row, col) {
+            if (currentPlayer !== playerColor) return;
+
+            const square = document.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+            
+            if (selectedSquare) {
+                // Try to make a move
+                const fromRow = parseInt(selectedSquare.dataset.row);
+                const fromCol = parseInt(selectedSquare.dataset.col);
+                
+                if (isValidMove(fromRow, fromCol, row, col)) {
+                    makeMove(fromRow, fromCol, row, col);
+                }
+                
+                // Clear selection
+                document.querySelectorAll('.square').forEach(s => {
+                    s.classList.remove('selected', 'possible-move');
+                });
+                selectedSquare = null;
+            } else {
+                // Select a piece
+                const piece = gameState.board[row][col];
+                if (piece && isPieceColor(row, col, playerColor)) {
+                    selectedSquare = square;
+                    square.classList.add('selected');
+                    highlightPossibleMoves(row, col);
+                }
+            }
+        }
+
+        function isPieceColor(row, col, color) {
+            const piece = gameState.board[row][col];
+            if (!piece) return false;
+            
+            if (color === 'white') {
+                return row >= 6; // White pieces start on rows 6-7
+            } else {
+                return row <= 1; // Black pieces start on rows 0-1
+            }
+        }
+
+        function isValidMove(fromRow, fromCol, toRow, toCol) {
+            // Basic validation - you can expand this with proper chess rules
+            if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) return false;
+            if (fromRow === toRow && fromCol === toCol) return false;
+            
+            const piece = gameState.board[fromRow][fromCol];
+            const targetPiece = gameState.board[toRow][toCol];
+            
+            // Can't capture own pieces
+            if (targetPiece && isPieceColor(toRow, toCol, playerColor)) return false;
+            
+            // Basic movement rules (simplified)
+            if (piece === 'pawn') {
+                return isValidPawnMove(fromRow, fromCol, toRow, toCol);
+            }
+            
+            return true; // Simplified - allow most moves for now
+        }
+
+        function isValidPawnMove(fromRow, fromCol, toRow, toCol) {
+            const direction = playerColor === 'white' ? -1 : 1;
+            const startRow = playerColor === 'white' ? 6 : 1;
+            
+            // Forward move
+            if (fromCol === toCol && !gameState.board[toRow][toCol]) {
+                if (toRow - fromRow === direction) return true;
+                if (fromRow === startRow && toRow - fromRow === 2 * direction) return true;
+            }
+            
+            // Diagonal capture
+            if (Math.abs(fromCol - toCol) === 1 && toRow - fromRow === direction) {
+                return gameState.board[toRow][toCol] !== null;
+            }
+            
+            return false;
+        }
+
+        function highlightPossibleMoves(row, col) {
+            // Simplified highlighting - highlight adjacent squares for now
+            for (let r = Math.max(0, row - 2); r <= Math.min(7, row + 2); r++) {
+                for (let c = Math.max(0, col - 2); c <= Math.min(7, col + 2); c++) {
+                    if (r !== row || c !== col) {
+                        const square = document.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                        if (isValidMove(row, col, r, c)) {
+                            square.classList.add('possible-move');
+                        }
+                    }
+                }
+            }
+        }
+
+        function makeMove(fromRow, fromCol, toRow, toCol) {
+            const newBoard = JSON.parse(JSON.stringify(gameState.board));
+            newBoard[toRow][toCol] = newBoard[fromRow][fromCol];
+            newBoard[fromRow][fromCol] = null;
+            
+            const nextPlayer = currentPlayer === 'white' ? 'black' : 'white';
+            
+            database.ref('games/' + gameId).update({
+                board: newBoard,
+                currentPlayer: nextPlayer
+            });
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Link copied to clipboard!');
+            });
+        }
+
+        // Check for game ID in URL
+        window.onload = function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const gameParam = urlParams.get('game');
+            if (gameParam) {
+                document.getElementById('gameIdInput').value = gameParam;
+                joinGame();
+            }
+        };
+    </script>
+</body>
+</html>
